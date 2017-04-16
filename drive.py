@@ -8,6 +8,7 @@ import numpy as np
 import socketio
 import eventlet
 import eventlet.wsgi
+import cv2
 from PIL import Image
 from flask import Flask
 from io import BytesIO
@@ -23,27 +24,35 @@ prev_image_array = None
 
 
 class SimplePIController:
-    def __init__(self, Kp, Ki):
+    def __init__(self, Kp, Ki, Kd=0.0025):
         self.Kp = Kp
         self.Ki = Ki
+        self.Kd = Kd
         self.set_point = 0.
         self.error = 0.
+        self.prev_error = 0.
         self.integral = 0.
+        self.diff = 0.
 
     def set_desired(self, desired):
         self.set_point = desired
 
     def update(self, measurement):
+        self.prev_error = self.error
         # proportional error
         self.error = self.set_point - measurement
 
         # integral error
         self.integral += self.error
 
-        return self.Kp * self.error + self.Ki * self.integral
+        #diff error
+        self.diff = self.error - self.prev_error
 
 
-controller = SimplePIController(0.1, 0.002)
+        return self.Kp * self.error + self.Ki * self.integral + self.Kd * self.diff
+
+
+controller = SimplePIController(0.1, 0.002, 0.0) 
 set_speed = 9
 controller.set_desired(set_speed)
 
@@ -61,6 +70,9 @@ def telemetry(sid, data):
         imgString = data["image"]
         image = Image.open(BytesIO(base64.b64decode(imgString)))
         image_array = np.asarray(image)
+        image_array = image_array[56:160,:,:]
+
+        image_array = cv2.resize(image_array, (64,64))
         steering_angle = float(model.predict(image_array[None, :, :, :], batch_size=1))
 
         throttle = controller.update(float(speed))
